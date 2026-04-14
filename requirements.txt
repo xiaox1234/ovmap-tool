@@ -1,3 +1,6 @@
 qrcode
 pillow
 pyinstaller
+requests
+selenium
+mitmproxy
