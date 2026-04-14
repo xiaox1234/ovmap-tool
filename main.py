@@ -15,12 +15,21 @@ import xml.etree.ElementTree as ET
 from io import BytesIO
 import qrcode
 import requests
-from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from mitmproxy import http
+import time
+import os
+
+# 修复selenium导入：使用新版兼容写法
+try:
+    from selenium import webdriver
+    from selenium.webdriver.chrome.options import Options
+    from selenium.webdriver.common.by import By
+    from selenium.webdriver.support.ui import WebDriverWait
+    from selenium.webdriver.support import expected_conditions as EC
+    from selenium.common.exceptions import WebDriverException
+except ImportError:
+    webdriver = None
+    Options = None
+    print("⚠ selenium未安装，自动抓取功能将不可用，仅保留手动配置功能")
 
 
 # ---------- 数据结构定义 ----------
@@ -31,7 +40,7 @@ class TileSourceConfig:
     map_name: str = "自定义图源"
     host_name: str = "mt0.google.com"
     url_template: str = "/vt/lyrs=s&x={$x}&y={$y}&z={$z}"
-    port: int = 80
+    port: int = 443
     protocol: str = "https"
     max_level: int = 23
     min_level: int = 1
@@ -93,21 +102,28 @@ class TileURLParser:
 
 # ---------- 网络请求拦截器 ----------
 class NetworkInterceptor:
-    """使用Selenium + 代理拦截网络请求，提取瓦片URL"""
+    """使用Selenium拦截网络请求，提取瓦片URL"""
     
-    def __init__(self, proxy_port: int = 8080):
-        self.proxy_port = proxy_port
+    def __init__(self):
         self.captured_urls: List[str] = []
         self.driver = None
     
     def _setup_driver(self) -> webdriver.Chrome:
-        """配置Chrome驱动，使用mitmproxy作为代理"""
+        """配置Chrome驱动，无头模式"""
+        if webdriver is None:
+            raise ImportError("selenium未安装，无法使用自动抓取功能")
+            
         chrome_options = Options()
-        chrome_options.add_argument('--proxy-server=http://127.0.0.1:%d' % self.proxy_port)
+        chrome_options.add_argument('--headless=new')
         chrome_options.add_argument('--ignore-certificate-errors')
         chrome_options.add_argument('--disable-blink-features=AutomationControlled')
         chrome_options.add_experimental_option('excludeSwitches', ['enable-automation'])
-        chrome_options.add_argument('--headless')  # 无头模式
+        chrome_options.add_argument('--no-sandbox')
+        chrome_options.add_argument('--disable-dev-shm-usage')
+        chrome_options.add_argument('--disable-gpu')
+        
+        # 启用性能日志，用于捕获网络请求
+        chrome_options.set_capability('goog:loggingPrefs', {'performance': 'ALL'})
         
         driver = webdriver.Chrome(options=chrome_options)
         return driver
@@ -115,6 +131,7 @@ class NetworkInterceptor:
     def capture_from_url(self, target_url: str, wait_time: int = 5) -> List[str]:
         """访问目标URL并捕获瓦片请求"""
         self.driver = self._setup_driver()
+        self.captured_urls.clear()
         
         try:
             self.driver.get(target_url)
@@ -127,16 +144,23 @@ class NetworkInterceptor:
             # 从浏览器性能日志中获取网络请求
             logs = self.driver.get_log('performance')
             for entry in logs:
-                message = json.loads(entry['message'])['message']
-                if message['method'] == 'Network.responseReceived':
-                    url = message['params']['response']['url']
-                    if self._is_tile_url(url):
-                        self.captured_urls.append(url)
+                try:
+                    message = json.loads(entry['message'])['message']
+                    if message['method'] == 'Network.responseReceived':
+                        url = message['params']['response']['url']
+                        if self._is_tile_url(url):
+                            self.captured_urls.append(url)
+                except Exception as e:
+                    continue
             
+        except WebDriverException as e:
+            print(f"❌ 浏览器驱动错误: {e}")
+            print("💡 请确保已安装Chrome浏览器和对应版本的ChromeDriver")
         except Exception as e:
-            print(f"捕获过程中出错: {e}")
+            print(f"❌ 捕获过程中出错: {e}")
         finally:
-            self.driver.quit()
+            if self.driver:
+                self.driver.quit()
         
         return self.captured_urls
     
@@ -289,6 +313,11 @@ class OvitalMapGenerator:
     
     def export_all(self, config: TileSourceConfig, base_filename: str):
         """导出所有格式"""
+        # 确保输出目录存在
+        output_dir = os.path.dirname(base_filename)
+        if output_dir and not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+            
         self.export_ovmap(config, f"{base_filename}.ovmap")
         self.export_json(config, f"{base_filename}.json")
         self.generate_qrcode(config, f"{base_filename}.png")
@@ -371,7 +400,7 @@ def create_gui():
         def __init__(self, root):
             self.root = root
             self.root.title("奥维地图图源生成器")
-            self.root.geometry("600x500")
+            self.root.geometry("700x600")
             self.tool = OvitalMapTool()
             
             self._create_widgets()
@@ -389,6 +418,7 @@ def create_gui():
             ttk.Label(input_frame, text="目标网站URL:").grid(row=0, column=0, sticky='w', pady=5)
             self.url_entry = ttk.Entry(input_frame, width=50)
             self.url_entry.grid(row=0, column=1, padx=5, pady=5)
+            self.url_entry.insert(0, "https://www.google.com/maps")
             
             ttk.Label(input_frame, text="输出文件名:").grid(row=1, column=0, sticky='w', pady=5)
             self.output_entry = ttk.Entry(input_frame, width=30)
@@ -419,7 +449,7 @@ def create_gui():
             log_frame = ttk.LabelFrame(self.root, text="运行日志", padding=5)
             log_frame.pack(fill='both', expand=True, padx=20, pady=10)
             
-            self.log_text = tk.Text(log_frame, height=10, width=70)
+            self.log_text = tk.Text(log_frame, height=12, width=80)
             scrollbar = ttk.Scrollbar(log_frame, orient='vertical', command=self.log_text.yview)
             self.log_text.configure(yscrollcommand=scrollbar.set)
             
@@ -456,7 +486,7 @@ def create_gui():
         def open_manual_config(self):
             manual_window = tk.Toplevel(self.root)
             manual_window.title("手动配置")
-            manual_window.geometry("500x500")
+            manual_window.geometry("550x550")
             
             frame = ttk.Frame(manual_window, padding=10)
             frame.pack(fill='both', expand=True)
@@ -469,32 +499,39 @@ def create_gui():
                 ("投影类型:", "proj_type", "墨卡托中国"),
                 ("图片类型:", "img_type", "影像地图"),
                 ("图片格式:", "img_format", "jpg"),
+                ("端口:", "port", "443"),
+                ("协议:", "protocol", "https"),
             ]
             
             entries = {}
             for i, (label, key, default) in enumerate(fields):
                 ttk.Label(frame, text=label).grid(row=i, column=0, sticky='w', pady=5)
-                entry = ttk.Entry(frame, width=40)
+                entry = ttk.Entry(frame, width=45)
                 entry.grid(row=i, column=1, padx=5, pady=5)
                 entry.insert(0, default)
                 entries[key] = entry
             
             def save_manual():
-                config = TileSourceConfig(
-                    map_name=entries["map_name"].get(),
-                    host_name=entries["host_name"].get(),
-                    url_template=entries["url_template"].get(),
-                    max_level=int(entries["max_level"].get()),
-                    proj_type=entries["proj_type"].get(),
-                    img_type=entries["img_type"].get(),
-                    img_format=entries["img_format"].get()
-                )
-                
-                output = self.output_entry.get().strip() or "manual_source"
-                self.tool.generator.export_all(config, output)
-                self.log(f"✓ 手动配置已保存: {output}.ovmap")
-                messagebox.showinfo("成功", f"配置已保存: {output}.ovmap")
-                manual_window.destroy()
+                try:
+                    config = TileSourceConfig(
+                        map_name=entries["map_name"].get(),
+                        host_name=entries["host_name"].get(),
+                        url_template=entries["url_template"].get(),
+                        max_level=int(entries["max_level"].get()),
+                        proj_type=entries["proj_type"].get(),
+                        img_type=entries["img_type"].get(),
+                        img_format=entries["img_format"].get(),
+                        port=int(entries["port"].get()),
+                        protocol=entries["protocol"].get()
+                    )
+                    
+                    output = self.output_entry.get().strip() or "manual_source"
+                    self.tool.generator.export_all(config, output)
+                    self.log(f"✓ 手动配置已保存: {output}.ovmap")
+                    messagebox.showinfo("成功", f"配置已保存: {output}.ovmap")
+                    manual_window.destroy()
+                except Exception as e:
+                    messagebox.showerror("错误", str(e))
             
             ttk.Button(frame, text="保存配置", command=save_manual).grid(row=len(fields), column=0, columnspan=2, pady=20)
         
@@ -558,5 +595,4 @@ def main():
 
 
 if __name__ == "__main__":
-    import time
     main()
