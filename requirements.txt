@@ -1,5 +1,5 @@
-qrcode==7.4.2
-pillow==10.2.0
-pyinstaller==6.3.0
-requests==2.31.0
-selenium==4.15.2
+selenium
+requests
+Pillow
+qrcode
+pyinstaller
