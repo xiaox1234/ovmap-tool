@@ -1,21 +1,26 @@
 # -*- mode: python ; coding: utf-8 -*-
 block_cipher = None
 
+# 打包chromedriver.exe到EXE根目录
 added_files = [
     ('chromedriver.exe', '.'),
 ]
 
+# 显式声明selenium所有依赖，避免打包遗漏
 hidden_imports = [
     'selenium',
     'selenium.webdriver',
+    'selenium.webdriver.chrome',
+    'selenium.webdriver.chrome.service',
+    'selenium.webdriver.chrome.options',
     'selenium.webdriver.common.by',
     'selenium.webdriver.support.ui',
     'selenium.webdriver.support.expected_conditions',
-    'selenium.webdriver.chrome.service',
+    'selenium.common.exceptions',
 ]
 
 a = Analysis(
-    ['ovital_tool.py'],
+    ['main.py'],  # 你的主程序文件名
     pathex=[],
     binaries=[],
     datas=added_files,
