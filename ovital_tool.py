@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-奥维地图图源自动生成工具（EXE兼容版）
+奥维地图图源自动生成工具（EXE无控制台兼容版）
 """
 
 import os
@@ -15,7 +15,7 @@ import xml.etree.ElementTree as ET
 import qrcode
 import requests
 
-# ================== 关键：EXE 路径兼容 ==================
+# ================== 关键：EXE 路径兼容 + 控制台修复 ==================
 def resource_path(relative_path):
     """获取资源绝对路径，兼容开发和PyInstaller打包环境"""
     try:
@@ -23,6 +23,11 @@ def resource_path(relative_path):
     except Exception:
         base_path = os.path.abspath(".")
     return os.path.join(base_path, relative_path)
+
+# 修复--windowed打包后argparse打印崩溃问题
+if getattr(sys, 'frozen', False):
+    sys.stdout = open(os.devnull, 'w')
+    sys.stderr = open(os.devnull, 'w')
 
 # ================== 修复selenium导入 ==================
 try:
@@ -37,7 +42,6 @@ except ImportError:
     webdriver = None
     Service = None
     Options = None
-    print("⚠ selenium未安装，自动抓取功能将不可用，仅保留手动配置功能")
 
 
 # ---------- 数据结构定义 ----------
@@ -119,7 +123,6 @@ class NetworkInterceptor:
         chrome_options.add_argument('--disable-gpu')
         chrome_options.set_capability('goog:loggingPrefs', {'performance': 'ALL'})
         
-        # 关键：用resource_path加载打包后的chromedriver
         driver_path = resource_path("chromedriver.exe")
         service = Service(executable_path=driver_path)
         driver = webdriver.Chrome(service=service, options=chrome_options)
@@ -244,12 +247,10 @@ class OvitalMapGenerator:
             ET.SubElement(root, "Cookies").text = config.cookies
         tree = ET.ElementTree(root)
         tree.write(filepath, encoding="utf-8", xml_declaration=True)
-        print(f"✓ 已导出配置文件: {filepath}")
     
     def export_json(self, config: TileSourceConfig, filepath: str):
         with open(filepath, 'w', encoding='utf-8') as f:
             json.dump(asdict(config), f, ensure_ascii=False, indent=2)
-        print(f"✓ 已导出JSON配置: {filepath}")
     
     def generate_qrcode(self, config: TileSourceConfig, filepath: str):
         qr_data = f"ovital://addmap?name={config.map_name}&host={config.host_name}&url={config.url_template}&proj={config.proj_type}"
@@ -258,7 +259,6 @@ class OvitalMapGenerator:
         qr.make(fit=True)
         img = qr.make_image(fill_color="black", back_color="white")
         img.save(filepath)
-        print(f"✓ 已生成二维码: {filepath}")
     
     def export_all(self, config: TileSourceConfig, base_filename: str):
         output_dir = os.path.dirname(base_filename)
@@ -277,24 +277,19 @@ class OvitalMapTool:
         self.interceptor = NetworkInterceptor()
     
     def process_url(self, target_url: str, output_name: str = "output"):
-        print(f"\n🔍 正在分析目标网站: {target_url}")
-        print("📡 捕获网络请求中...")
         captured = self.interceptor.capture_from_url(target_url)
         
         if captured:
-            print(f"✓ 捕获到 {len(captured)} 个瓦片请求")
             for url in captured[:5]:
                 result = self.parser.parse_url(url)
                 if result:
                     template, params = result
-                    print(f"  识别到模板: {template}")
                     parsed = urllib.parse.urlparse(url)
                     host_name = parsed.netloc
                     config = self.generator.create_from_url(template, host_name, f"自动抓取_{host_name}")
                     self.generator.export_all(config, output_name)
                     return config
         
-        print("⚠ 无法捕获瓦片请求，使用预设Google模板...")
         config = self.generator.create_google_source("satellite")
         self.generator.export_all(config, output_name)
         return config
@@ -305,13 +300,13 @@ class OvitalMapTool:
         return config
 
 
-# ---------- 图形界面 ----------
+# ---------- 图形界面（修复启动逻辑） ----------
 def create_gui():
     try:
         import tkinter as tk
-        from tkinter import ttk, filedialog, messagebox
+        from tkinter import ttk, messagebox
     except ImportError:
-        print("tkinter不可用，请使用命令行模式")
+        messagebox.showerror("错误", "tkinter不可用，无法启动图形界面")
         return
     
     class OvitalMapGUI:
@@ -319,6 +314,7 @@ def create_gui():
             self.root = root
             self.root.title("奥维地图图源生成器")
             self.root.geometry("700x600")
+            self.root.resizable(False, False)
             self.tool = OvitalMapTool()
             self._create_widgets()
         
@@ -445,14 +441,19 @@ def create_gui():
     root.mainloop()
 
 
-# ---------- 命令行入口 ----------
+# ---------- 命令行入口（修复--windowed崩溃问题） ----------
 def main():
+    # 打包后直接启动GUI，跳过命令行解析
+    if getattr(sys, 'frozen', False):
+        create_gui()
+        return
+    
     import argparse
     parser = argparse.ArgumentParser(description="奥维地图图源自动生成工具")
     parser.add_argument('--url', '-u', type=str, help='目标网站URL')
     parser.add_argument('--output', '-o', type=str, default='ovital_source', help='输出文件名')
     parser.add_argument('--template', '-t', type=str, choices=['satellite', 'hybrid', 'roadmap', 'terrain'], help='使用预设Google模板')
-    parser.add_argument('--gui', '-g', action='store_true', help='启动图形界面')
+    parser.add_argument('--gui', '-g', action='store_true', help='启动图形界面', default=True)
     parser.add_argument('--manual', '-m', action='store_true', help='手动输入模式')
     args = parser.parse_args()
     
@@ -474,11 +475,8 @@ def main():
         tool = OvitalMapTool()
         tool.process_url(args.url, args.output)
     else:
-        parser.print_help()
-        print("\n示例用法:")
-        print("  python ovital_tool.py --gui                    # 启动图形界面")
-        print("  python ovital_tool.py --url https://example.com/map --output my_source")
-        print("  python ovital_tool.py --template satellite --output google_sat")
+        create_gui()
+
 
 if __name__ == "__main__":
     main()
