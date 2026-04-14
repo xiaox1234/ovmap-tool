@@ -6,7 +6,7 @@ added_files = [
     ('chromedriver.exe', '.'),
 ]
 
-# 显式声明selenium所有依赖，避免打包遗漏
+# 显式声明selenium所有依赖
 hidden_imports = [
     'selenium',
     'selenium.webdriver',
@@ -20,7 +20,7 @@ hidden_imports = [
 ]
 
 a = Analysis(
-    ['main.py'],  # 你的主程序文件名
+    ['ovital_tool.py'],  # 这里必须和你的主程序文件名完全一致！
     pathex=[],
     binaries=[],
     datas=added_files,
