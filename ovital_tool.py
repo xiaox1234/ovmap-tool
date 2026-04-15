@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-奥维地图图源生成工具【终极稳定版】
-已优化：{$s}子域、完整二维码、日志、网络检测
+奥维地图图源生成工具【终极稳定版·修复tkinter错误】
+已优化：{$s}子域、完整二维码、日志、网络检测、修复tkinter布局错误
 """
 
 import os
@@ -162,13 +162,13 @@ class OvitalMapGenerator:
         self.export_ovmap(config, f"{base_path}.ovmap")
         self.generate_qrcode(config, f"{base_path}.png")
 
-# ================== GUI 界面 ==================
+# ================== GUI 界面（修复tkinter布局错误） ==================
 def create_gui():
     try:
         import tkinter as tk
         from tkinter import ttk, filedialog, messagebox
-    except:
-        log("导入GUI库失败")
+    except Exception as e:
+        log(f"导入GUI库失败: {str(e)}")
         return
 
     root = tk.Tk()
@@ -207,35 +207,40 @@ def create_gui():
             log(f"生成失败: {str(e)}")
             messagebox.showerror("错误", str(e))
 
-    # ---------- 布局 ----------
+    # ---------- 布局（修复所有-pad错误，改用padx/pady） ----------
     tk.Label(root, text="奥维互动地图 图源生成工具", font=("微软雅黑", 16, "bold")).pack(pady=15)
 
     frame = ttk.LabelFrame(root, text="参数配置", padding=15)
-    frame.pack(fill="x", pad=20)
+    frame.pack(fill="x", padx=20, pady=10)
 
-    ttk.Label(frame, text="预设模板：").grid(row=0, column=0, sticky="w", pady=6)
+    # 模板选择
+    ttk.Label(frame, text="预设模板：").grid(row=0, column=0, sticky="w", pady=6, padx=5)
     template_var = tk.StringVar(value="卫星图")
     ttk.Combobox(frame, textvariable=template_var, 
                  values=["卫星图","混合图","道路图","地形图"], 
-                 width=18, state="readonly").grid(row=0, column=1, sticky="w")
+                 width=18, state="readonly").grid(row=0, column=1, sticky="w", pady=6, padx=5)
 
-    ttk.Label(frame, text="文件名称：").grid(row=1, column=0, sticky="w", pady=6)
+    # 文件名称
+    ttk.Label(frame, text="文件名称：").grid(row=1, column=0, sticky="w", pady=6, padx=5)
     name_var = tk.StringVar(value="Google卫星图")
-    ttk.Entry(frame, textvariable=name_var, width=25).grid(row=1, column=1, sticky="w")
+    ttk.Entry(frame, textvariable=name_var, width=25).grid(row=1, column=1, sticky="w", pady=6, padx=5)
 
-    ttk.Label(frame, text="保存位置：").grid(row=2, column=0, sticky="w", pady=6)
+    # 保存位置
+    ttk.Label(frame, text="保存位置：").grid(row=2, column=0, sticky="w", pady=6, padx=5)
     path_var = tk.StringVar(value=os.path.join(os.path.expanduser("~"), "Desktop"))
-    ttk.Entry(frame, textvariable=path_var, width=35).grid(row=2, column=1, sticky="w")
-    ttk.Button(frame, text="浏览", command=select_path, width=8).grid(row=2, column=2, pad=5)
+    ttk.Entry(frame, textvariable=path_var, width=35).grid(row=2, column=1, sticky="w", pady=6, padx=5)
+    ttk.Button(frame, text="浏览", command=select_path, width=8).grid(row=2, column=2, padx=5, pady=6)
 
+    # 生成按钮
     ttk.Button(root, text="▶ 生成图源文件 + 可扫描二维码", command=build, width=38).pack(pady=18)
 
+    # 使用说明
     msg = """使用说明：
 ① 生成后直接导入 .ovmap 文件到奥维
 ② 或扫描二维码一键添加
 ③ 出现 No Data(-5) 是网络环境问题，非配置错误
 ④ 支持 mt0-mt3 自动轮询，加载更快"""
-    tk.Label(root, text=msg, fg="#444", justify="left").pack(pady=5)
+    tk.Label(root, text=msg, fg="#444", justify="left").pack(pady=5, padx=20)
 
     root.mainloop()
 
