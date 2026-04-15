@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-奥维地图图源自动生成工具（EXE无控制台兼容版）
+奥维地图图源自动生成工具（带自定义保存路径+中文模板版）
 """
 
 import os
@@ -170,22 +170,22 @@ class NetworkInterceptor:
 # ---------- 奥维图源生成器 ----------
 class OvitalMapGenerator:
     GOOGLE_TEMPLATES = {
-        "satellite": {
+        "卫星图": {
             "name": "Google卫星图",
             "url": "/maps/vt?lyrs=s&gl=CN&hl=zh-CN&x={$x}&y={$y}&z={$z}",
             "img_type": "影像地图"
         },
-        "hybrid": {
+        "混合图": {
             "name": "Google混合图",
             "url": "/maps/vt?lyrs=s,h&gl=CN&hl=zh-CN&x={$x}&y={$y}&z={$z}",
             "img_type": "影像地图"
         },
-        "roadmap": {
+        "道路图": {
             "name": "Google道路图",
             "url": "/maps/vt?lyrs=m&gl=CN&hl=zh-CN&x={$x}&y={$y}&z={$z}",
             "img_type": "普通地图"
         },
-        "terrain": {
+        "地形图": {
             "name": "Google地形图",
             "url": "/maps/vt?lyrs=t&gl=CN&hl=zh-CN&x={$x}&y={$y}&z={$z}",
             "img_type": "普通地图"
@@ -210,8 +210,8 @@ class OvitalMapGenerator:
         self.configs.append(config)
         return config
     
-    def create_google_source(self, template_key: str = "satellite") -> TileSourceConfig:
-        template = self.GOOGLE_TEMPLATES.get(template_key, self.GOOGLE_TEMPLATES["satellite"])
+    def create_google_source(self, template_key: str = "卫星图"):
+        template = self.GOOGLE_TEMPLATES.get(template_key, self.GOOGLE_TEMPLATES["卫星图"])
         config = TileSourceConfig(
             map_name=template["name"],
             host_name="gac-geo.googlecnapps.cn",
@@ -276,7 +276,7 @@ class OvitalMapTool:
         self.generator = OvitalMapGenerator()
         self.interceptor = NetworkInterceptor()
     
-    def process_url(self, target_url: str, output_name: str = "output"):
+    def process_url(self, target_url: str, output_path: str):
         captured = self.interceptor.capture_from_url(target_url)
         
         if captured:
@@ -287,24 +287,24 @@ class OvitalMapTool:
                     parsed = urllib.parse.urlparse(url)
                     host_name = parsed.netloc
                     config = self.generator.create_from_url(template, host_name, f"自动抓取_{host_name}")
-                    self.generator.export_all(config, output_name)
+                    self.generator.export_all(config, output_path)
                     return config
         
-        config = self.generator.create_google_source("satellite")
-        self.generator.export_all(config, output_name)
+        config = self.generator.create_google_source("卫星图")
+        self.generator.export_all(config, output_path)
         return config
     
-    def create_from_manual_input(self, host_name: str, url_template: str, map_name: str, output_name: str = "manual"):
+    def create_from_manual_input(self, host_name: str, url_template: str, map_name: str, output_path: str):
         config = self.generator.create_from_url(url_template, host_name, map_name)
-        self.generator.export_all(config, output_name)
+        self.generator.export_all(config, output_path)
         return config
 
 
-# ---------- 图形界面（修复启动逻辑） ----------
+# ---------- 图形界面（新增选择保存路径 + 中文模板） ----------
 def create_gui():
     try:
         import tkinter as tk
-        from tkinter import ttk, messagebox
+        from tkinter import ttk, filedialog, messagebox
     except ImportError:
         messagebox.showerror("错误", "tkinter不可用，无法启动图形界面")
         return
@@ -313,68 +313,103 @@ def create_gui():
         def __init__(self, root):
             self.root = root
             self.root.title("奥维地图图源生成器")
-            self.root.geometry("700x600")
+            self.root.geometry("750x650")
             self.root.resizable(False, False)
             self.tool = OvitalMapTool()
             self._create_widgets()
         
         def _create_widgets(self):
-            title = ttk.Label(self.root, text="奥维地图图源自动生成工具", font=('Arial', 16, 'bold'))
+            # 标题
+            title = ttk.Label(self.root, text="奥维地图图源自动生成工具", font=('微软雅黑', 16, 'bold'))
             title.pack(pady=20)
             
+            # 输入区域
             input_frame = ttk.LabelFrame(self.root, text="输入配置", padding=10)
             input_frame.pack(fill='x', padx=20, pady=10)
             
+            # 1. 目标网站URL
             ttk.Label(input_frame, text="目标网站URL:").grid(row=0, column=0, sticky='w', pady=5)
-            self.url_entry = ttk.Entry(input_frame, width=50)
-            self.url_entry.grid(row=0, column=1, padx=5, pady=5)
+            self.url_entry = ttk.Entry(input_frame, width=55)
+            self.url_entry.grid(row=0, column=1, padx=5, pady=5, columnspan=2)
             self.url_entry.insert(0, "https://www.google.com/maps")
             
+            # 2. 输出文件名
             ttk.Label(input_frame, text="输出文件名:").grid(row=1, column=0, sticky='w', pady=5)
             self.output_entry = ttk.Entry(input_frame, width=30)
             self.output_entry.grid(row=1, column=1, sticky='w', padx=5, pady=5)
             self.output_entry.insert(0, "ovital_map_source")
             
-            ttk.Label(input_frame, text="预设模板:").grid(row=2, column=0, sticky='w', pady=5)
-            self.template_var = tk.StringVar(value="auto")
-            template_combo = ttk.Combobox(input_frame, textvariable=self.template_var, values=["auto", "satellite", "hybrid", "roadmap", "terrain"], width=15, state="readonly")
-            template_combo.grid(row=2, column=1, sticky='w', padx=5, pady=5)
-            template_combo.set("auto")
+            # 3. 保存路径
+            ttk.Label(input_frame, text="文件保存位置:").grid(row=2, column=0, sticky='w', pady=5)
+            self.path_entry = ttk.Entry(input_frame, width=40)
+            self.path_entry.grid(row=2, column=1, sticky='w', padx=5, pady=5)
+            default_path = os.path.join(os.path.expanduser("~"), "Desktop")
+            self.path_entry.insert(0, default_path)
+            ttk.Button(input_frame, text="浏览...", command=self._browse_path, width=8).grid(row=2, column=2, padx=5, pady=5)
             
+            # 4. 预设模板（中文）
+            ttk.Label(input_frame, text="预设模板:").grid(row=3, column=0, sticky='w', pady=5)
+            self.template_var = tk.StringVar(value="自动")
+            template_combo = ttk.Combobox(
+                input_frame,
+                textvariable=self.template_var,
+                values=["自动", "卫星图", "混合图", "道路图", "地形图"],
+                width=15,
+                state="readonly"
+            )
+            template_combo.grid(row=3, column=1, sticky='w', padx=5, pady=5)
+            template_combo.set("自动")
+            
+            # 按钮区域
             btn_frame = ttk.Frame(self.root)
             btn_frame.pack(pady=20)
             ttk.Button(btn_frame, text="自动抓取并生成", command=self.process_auto, width=20).pack(side='left', padx=10)
             ttk.Button(btn_frame, text="手动配置", command=self.open_manual_config, width=20).pack(side='left', padx=10)
-            ttk.Button(btn_frame, text="直接使用Google模板", command=self.use_google_template, width=20).pack(side='left', padx=10)
+            ttk.Button(btn_frame, text="使用Google模板", command=self.use_google_template, width=20).pack(side='left', padx=10)
             
+            # 日志区域
             log_frame = ttk.LabelFrame(self.root, text="运行日志", padding=5)
             log_frame.pack(fill='both', expand=True, padx=20, pady=10)
-            self.log_text = tk.Text(log_frame, height=12, width=80)
+            self.log_text = tk.Text(log_frame, height=15, width=85)
             scrollbar = ttk.Scrollbar(log_frame, orient='vertical', command=self.log_text.yview)
             self.log_text.configure(yscrollcommand=scrollbar.set)
             self.log_text.pack(side='left', fill='both', expand=True)
             scrollbar.pack(side='right', fill='y')
+        
+        def _browse_path(self):
+            path = filedialog.askdirectory(title="选择文件保存位置", initialdir=self.path_entry.get())
+            if path:
+                self.path_entry.delete(0, tk.END)
+                self.path_entry.insert(0, path)
         
         def log(self, message):
             self.log_text.insert('end', message + '\n')
             self.log_text.see('end')
             self.root.update()
         
+        def _get_full_output_path(self):
+            save_dir = self.path_entry.get().strip()
+            filename = self.output_entry.get().strip() or "ovital_map_source"
+            if not save_dir:
+                save_dir = os.path.join(os.path.expanduser("~"), "Desktop")
+            return os.path.join(save_dir, filename)
+        
         def process_auto(self):
             url = self.url_entry.get().strip()
             if not url:
                 messagebox.showerror("错误", "请输入目标网站URL")
                 return
-            output = self.output_entry.get().strip() or "ovital_map_source"
+            output_path = self._get_full_output_path()
             self.log(f"开始分析: {url}")
+            self.log(f"文件将保存至: {output_path}.*")
             try:
-                config = self.tool.process_url(url, output)
+                config = self.tool.process_url(url, output_path)
                 self.log(f"✓ 成功生成图源配置！")
                 self.log(f"  地图名称: {config.map_name}")
                 self.log(f"  主机名: {config.host_name}")
                 self.log(f"  URL模板: {config.url_template}")
-                self.log(f"✓ 文件已保存: {output}.ovmap, {output}.json, {output}.png")
-                messagebox.showinfo("成功", f"图源配置已生成！\n保存位置: {output}.ovmap")
+                self.log(f"✓ 文件已保存: {output_path}.ovmap, {output_path}.json, {output_path}.png")
+                messagebox.showinfo("成功", f"图源配置已生成！\n保存位置: {output_path}.ovmap")
             except Exception as e:
                 self.log(f"✗ 错误: {str(e)}")
                 messagebox.showerror("错误", str(e))
@@ -416,10 +451,10 @@ def create_gui():
                         port=int(entries["port"].get()),
                         protocol=entries["protocol"].get()
                     )
-                    output = self.output_entry.get().strip() or "manual_source"
-                    self.tool.generator.export_all(config, output)
-                    self.log(f"✓ 手动配置已保存: {output}.ovmap")
-                    messagebox.showinfo("成功", f"配置已保存: {output}.ovmap")
+                    output_path = self._get_full_output_path()
+                    self.tool.generator.export_all(config, output_path)
+                    self.log(f"✓ 手动配置已保存: {output_path}.ovmap")
+                    messagebox.showinfo("成功", f"配置已保存: {output_path}.ovmap")
                     manual_window.destroy()
                 except Exception as e:
                     messagebox.showerror("错误", str(e))
@@ -427,56 +462,31 @@ def create_gui():
         
         def use_google_template(self):
             template = self.template_var.get()
-            if template == "auto":
-                template = "satellite"
+            if template == "自动":
+                template = "卫星图"
             config = self.tool.generator.create_google_source(template)
-            output = self.output_entry.get().strip() or f"google_{template}"
-            self.tool.generator.export_all(config, output)
+            output_path = self._get_full_output_path()
+            self.tool.generator.export_all(config, output_path)
             self.log(f"✓ 使用Google模板生成: {template}")
-            self.log(f"✓ 文件已保存: {output}.ovmap")
-            messagebox.showinfo("成功", f"Google图源已生成: {output}.ovmap")
+            self.log(f"✓ 文件已保存: {output_path}.ovmap")
+            messagebox.showinfo("成功", f"Google图源已生成: {output_path}.ovmap")
     
     root = tk.Tk()
     app = OvitalMapGUI(root)
     root.mainloop()
 
 
-# ---------- 命令行入口（修复--windowed崩溃问题） ----------
+# ---------- 命令行入口 ----------
 def main():
-    # 打包后直接启动GUI，跳过命令行解析
     if getattr(sys, 'frozen', False):
         create_gui()
         return
     
     import argparse
     parser = argparse.ArgumentParser(description="奥维地图图源自动生成工具")
-    parser.add_argument('--url', '-u', type=str, help='目标网站URL')
-    parser.add_argument('--output', '-o', type=str, default='ovital_source', help='输出文件名')
-    parser.add_argument('--template', '-t', type=str, choices=['satellite', 'hybrid', 'roadmap', 'terrain'], help='使用预设Google模板')
     parser.add_argument('--gui', '-g', action='store_true', help='启动图形界面', default=True)
-    parser.add_argument('--manual', '-m', action='store_true', help='手动输入模式')
     args = parser.parse_args()
-    
-    if args.gui:
-        create_gui()
-    elif args.manual:
-        print("=== 手动配置模式 ===")
-        host = input("主机名 (如 gac-geo.googlecnapps.cn): ").strip()
-        url_tpl = input("URL模板 (如 /maps/vt?lyrs=s&x={$x}&y={$y}&z={$z}): ").strip()
-        name = input("地图名称: ").strip()
-        tool = OvitalMapTool()
-        tool.create_from_manual_input(host, url_tpl, name, args.output)
-    elif args.template:
-        tool = OvitalMapTool()
-        config = tool.generator.create_google_source(args.template)
-        tool.generator.export_all(config, args.output)
-        print(f"✓ 已使用模板 '{args.template}' 生成配置")
-    elif args.url:
-        tool = OvitalMapTool()
-        tool.process_url(args.url, args.output)
-    else:
-        create_gui()
-
+    create_gui()
 
 if __name__ == "__main__":
     main()
